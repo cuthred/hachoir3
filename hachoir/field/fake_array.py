@@ -17,7 +17,7 @@ class FakeArray:
 
     def __init__(self, fieldset, name):
         pos = name.rfind("/")
-        if pos != -1:
+        if pos > 0:
             self.fieldset = fieldset[name[:pos]]
             self.name = name[pos + 1:]
         else:
