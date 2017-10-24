@@ -67,6 +67,36 @@ class GenericFieldSet(BasicFieldSet):
         self._array_cache = {}
         self.__is_feeding = False
 
+    def printDebug(self, p_override=False):
+        dpt = 0
+
+        def enterStruct(structName, start):
+            nonlocal dpt
+            print("%s%s[@%#x] {" % ("\t"*dpt, structName, start))
+            dpt += 1
+
+        def displayField(fieldName, start, p_len, display):
+            nonlocal dpt
+            if p_len > 1:
+                print("%s%s[@%#x-%#x(%s)]=%s" % ("\t"*dpt, fieldName, start, start+p_len-1, p_len, display))
+            else:
+                print("%s%s[@%#x(%s)]=%s" % ("\t" * dpt, fieldName, start, p_len, display))
+
+        def leaveStruct(structName, start, p_len):
+            nonlocal dpt
+            iStart = int(start)
+            iLen = int(p_len)
+            dpt -= 1
+            print("%s%s[-%#x(%s)] }" % ("\t"*dpt, structName, iStart+iLen-1,iLen))
+
+        if p_override == False:
+            return
+
+        enterStruct(self.__class__.__name__, self.absolute_address//8)
+        for field in self:
+            displayField(field.name, field.absolute_address//8, field.size//8, field.display)
+        leaveStruct(self.__class__.__name__, self.absolute_address//8, self.size//8)
+
     def array(self, key):
         try:
             return self._array_cache[key]

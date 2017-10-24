@@ -90,8 +90,8 @@ class PaddingBytes(Bytes):
             if content[index:index + pattern_len] != self.pattern:
                 self.warning(
                     "padding contents doesn't look normal"
-                    " (invalid pattern at byte %u)!"
-                    % index)
+                    " (invalid pattern at byte %u(%#x))!"
+                    % (index, (self.absolute_address//8+index)))
                 return False
             index += pattern_len
         return True
