@@ -3,7 +3,7 @@ from hachoir.metadata.safe import fault_tolerant, getValue
 from hachoir.metadata.metadata import (
     RootMetadata, Metadata, MultipleMetadata, registerExtractor)
 from hachoir.parser.archive import (Bzip2Parser, CabFile, GzipParser,
-                                    TarFile, ZipFile, MarFile)
+                                    TarFile, ZipFile, MarFile, RarFile)
 from hachoir.core.tools import humanUnixAttributes
 
 
@@ -28,6 +28,7 @@ def computeCompressionRate(meta):
     meta.compr_rate = float(file_size) / meta.get("compr_size")
 
 
+# noinspection PyAttributeOutsideInit
 class Bzip2Metadata(RootMetadata):
 
     def extract(self, zip):
@@ -35,11 +36,12 @@ class Bzip2Metadata(RootMetadata):
             self.compr_size = zip["file"].size // 8
 
 
+# noinspection PyAttributeOutsideInit
 class GzipMetadata(RootMetadata):
 
     def extract(self, gzip):
         self.useHeader(gzip)
-        computeCompressionRate(self)
+#        computeCompressionRate(self)
 
     @fault_tolerant
     def useHeader(self, gzip):
@@ -55,6 +57,7 @@ class GzipMetadata(RootMetadata):
         self.file_size = gzip["size"].value
 
 
+# noinspection PyAttributeOutsideInit
 class ZipMetadata(MultipleMetadata):
 
     def extract(self, zip):
@@ -89,7 +92,7 @@ class ZipMetadata(MultipleMetadata):
             meta.file_size = field["uncompressed_size"].value
             if field["compressed_size"].value:
                 meta.compr_size = field["compressed_size"].value
-        computeCompressionRate(meta)
+#        computeCompressionRate(meta)
         self.addGroup(field.name, meta, "File \"%s\"" % meta.get('filename'))
 
 
@@ -127,6 +130,7 @@ class TarMetadata(MultipleMetadata):
              field["gname"].value, field.getOctal("gid"))
 
 
+# noinspection PyAttributeOutsideInit
 class CabMetadata(MultipleMetadata):
 
     def extract(self, cab):
@@ -169,6 +173,7 @@ class CabMetadata(MultipleMetadata):
         self.addGroup(field.name, meta, title)
 
 
+# noinspection PyAttributeOutsideInit
 class MarMetadata(MultipleMetadata):
 
     def extract(self, mar):
@@ -190,9 +195,81 @@ class MarMetadata(MultipleMetadata):
                           "File \"%s\"" % meta.getText('filename'))
 
 
+# noinspection PyAttributeOutsideInit
+class RarMetadata(MultipleMetadata):
+    def extract(self, rar):
+        l_max_nb = maxNbFile(self)
+
+        l_rarformat = rar["signature"].value
+        if l_rarformat == b"RE~^":
+            l_format_version = "1.4"
+        elif l_rarformat[0:6] == b"Rar!\x1A\x07":
+            if l_rarformat[6:7] == b"\x00":
+                l_format_version = "1.5"      # RAR 4
+            elif l_rarformat[6:7] == b"\x01":
+                l_format_version = "5.0"
+            elif l_rarformat[6:7] == b"\x02":
+                l_format_version = "> 5.0"
+
+        self.format_version = "RAR version %s" % l_format_version
+
+        if l_format_version != "1.5":
+            self.warning("RAR TODO: unknown format_version \"%s\" " % l_format_version)
+
+        l_has_recovery_record = False
+        l_has_auth_verification = False
+        l_has_password = False
+        l_is_multivolume = False
+        l_is_solid = False
+
+        if rar["/archive_start/flags/has_comment"].value:
+            self.warning("RAR TODO: comment extraction not implemented")
+            self.comment = "HACHOIR: comment extraction not implemented"
+
+        l_has_recovery_record = rar["/archive_start/flags/has_recovery_record"].value
+        l_has_auth_verification = rar["/archive_start/flags/has_auth_information"].value
+        l_has_password = rar["/archive_start/flags/is_locked"].value
+        l_is_multivolume = rar["/archive_start/flags/vol"].value
+        l_is_solid = rar["/archive_start/flags/is_solid"].value
+        is_first_vol = rar["/archive_start/flags/is_first_vol"].value
+
+        for l_index, l_field in enumerate(rar.array("new_sub_block")):
+            if l_field["filename"].value == "CMT":
+                self.warning("RAR TODO: comment unpacking not implemented")
+                self.comment = "HACHOIR: comment unpacking not implemented"
+            elif l_field["filename"].value == "AV":
+                l_has_auth_verification = True
+            elif l_field["filename"].value == "RR":
+                    l_has_recovery_record = True
+            else:
+                self.warning("RAR TODO: unknown sub_block \"%s\" " % l_field["filename"].value)
+
+        self.has_recovery_record = l_has_recovery_record
+        self.has_auth_verification = l_has_auth_verification
+        self.has_password = l_has_password
+        self.is_multivolume = l_is_multivolume
+        self.is_solid = l_is_solid
+        self.is_first_vol = is_first_vol
+
+        for l_index, l_field in enumerate(rar.array("file")):
+            if l_max_nb is not None and l_max_nb <= l_index:
+                self.warning("RAR archive contains many files, but only first %s files are processed" % l_max_nb)
+                break
+            l_meta = Metadata(self)
+            l_meta.filename = l_field["filename"].value
+            l_meta.last_modification = l_field["ftime"].value
+            l_meta.os = l_field["host_os"].display
+            l_meta.application_version = l_field["version"].display
+            l_meta.compression = l_field["method"].display
+            l_meta.file_size = l_field["uncompressed_size"].value
+            l_meta.compr_size = l_field["compressed_size"].value
+            self.addGroup(l_field.name, l_meta, "File \"%s\"" % l_meta.get('filename'))
+
+
 registerExtractor(CabFile, CabMetadata)
 registerExtractor(GzipParser, GzipMetadata)
 registerExtractor(Bzip2Parser, Bzip2Metadata)
 registerExtractor(TarFile, TarMetadata)
 registerExtractor(ZipFile, ZipMetadata)
 registerExtractor(MarFile, MarMetadata)
+registerExtractor(RarFile, RarMetadata)
